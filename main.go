@@ -121,6 +121,7 @@ func main() {
 	connections := make([]*Connection, numConns)
 	for i := 0; i < numConns; i++ {
 		connections[i] = NewConnection(args[2])
+		connections[i].AddHeader("Content-Type", "application/json")
 
 		for _, v := range headers {
 			nameValue := strings.Split(v, ":")
