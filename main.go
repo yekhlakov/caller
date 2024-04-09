@@ -112,7 +112,10 @@ func GetRandomMessage() json.RawMessage {
 	msg = strings.ReplaceAll(msg, "#ID#", fmt.Sprintf("CALLER-%d", id))
 
 	for key, list := range idLists {
-		msg = strings.ReplaceAll(msg, "#"+key+"#", list[rand.Intn(len(list))])
+		if len(list) > 0 {
+			msg = strings.ReplaceAll(msg, "\"##"+key+"##\"", list[rand.Intn(len(list))])
+			msg = strings.ReplaceAll(msg, "#"+key+"#", list[rand.Intn(len(list))])
+		}
 	}
 
 	return []byte(msg)
@@ -140,6 +143,10 @@ func LoadIdListFile(fileName string) {
 	idListFile, _ := ioutil.ReadFile(fileName)
 
 	_ = json.Unmarshal(idListFile, &idLists)
+
+	for k := range idLists {
+		fmt.Println("key:", k, "count:", len(idLists[k]))
+	}
 }
 
 func main() {

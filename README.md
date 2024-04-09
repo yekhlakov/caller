@@ -11,12 +11,12 @@ For example:
 
     Authorization: basic, 123412341234
 
-`request-file` is a (probably not syntactically correct) json file
+`request-file` is a json file
 
     {
-        "0.1": {lol": "#VAL#"},
+        "0.1": {lol": "##VAL##"},
         "0.2": {"kek": "#FOO#"},
-        "0.666": {"id": "#ID#", "cheburek": #BAR#}
+        "0.666": {"id": "#ID#", "cheburek": "#BAR#"}
     }
 
 The keys here are probabilities of each request to appear.
@@ -36,10 +36,9 @@ When a random request is to be sent, it is scanned for template sequences and
 each such sequence is substituted with a random value from the corresponding list.
 A special pattern `#ID#` is replaced by a random string.
 
-So in our example the first request `{"lol": "#VAL#"}` will take the form
-`{"lol": "1"}`, `{"lol": "2"}` or `{"lol": "1"}` (at random).
+The pattern `#XXX#` is replaced as is. The pattern `"##XXX##"` is replaced including
+the quotes (which may be useful for inserting integers and other values outside json strings).
 
-The substitution is performed on string level and does NOT pay attention to json syntax
-(therefore the json in `request-file` may not be a valid json, like in the example above,
-but it will hopefully become a correct one after the substitution).
+So in our example the first request `{"lol": "##VAL##"}` will take the form
+`{"lol": 1}`, `{"lol": 2}` or `{"lol": 3}` (at random).
 
