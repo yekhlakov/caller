@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -63,39 +62,37 @@ func (conn *Connection) AddHeader(key, value string) {
 	conn.headers.Add(key, value)
 }
 
-func (conn *Connection) AddHeaders(headers []string) {
-	for _, v := range headers {
-		nameValue := strings.Split(v, ":")
-		if len(nameValue) != 2 {
-			continue
-		}
-		conn.AddHeader(strings.TrimSpace(nameValue[0]), strings.TrimSpace(nameValue[1]))
+func (conn *Connection) AddHeaders(headers map[string]string) {
+	for k, v := range headers {
+		conn.AddHeader(k, v)
 	}
 }
 
-// TemplateFile is the type to be extracted from a template file
-type TemplateFile map[string]json.RawMessage
-
-// IdListFile is the type to be extracted from an id list file
-type IdListFile map[string][]string
-
-// The storage for id lists
-var idLists IdListFile = map[string][]string{}
-
-type MessageTemplate struct {
-	Probability float64
-	Text        string
+type RequestTemplate struct {
+	Probability float64         `json:"probability"`
+	Template    json.RawMessage `json:"template"`
 }
 
-var messageTemplates []MessageTemplate
+type ConfigFile struct {
+	Rps              int                 `json:"rps"`
+	NumConnections   int                 `json:"numConnections"`
+	Url              string              `json:"url"`
+	Headers          map[string]string   `json:"headers,omitempty"`
+	RequestTemplates []RequestTemplate   `json:"requestTemplates"`
+	IdLists          map[string][]string `json:"idLists,omitempty"`
+}
+
+var config ConfigFile
 
 // GetRandomMessageTemplate Pick a random template from template list
 func GetRandomMessageTemplate() string {
 	randomValue := rand.Float64()
 
-	for i := range messageTemplates {
-		if randomValue < messageTemplates[i].Probability {
-			return messageTemplates[i].Text
+	totalProbability := 0.0
+	for i := range config.RequestTemplates {
+		totalProbability += config.RequestTemplates[i].Probability
+		if randomValue < totalProbability {
+			return string(config.RequestTemplates[i].Template)
 		}
 	}
 
@@ -111,7 +108,7 @@ func GetRandomMessage() json.RawMessage {
 	// replace patterns in the message with required elements
 	msg = strings.ReplaceAll(msg, "#ID#", fmt.Sprintf("CALLER-%d", id))
 
-	for key, list := range idLists {
+	for key, list := range config.IdLists {
 		if len(list) > 0 {
 			msg = strings.ReplaceAll(msg, "\"##"+key+"##\"", list[rand.Intn(len(list))])
 			msg = strings.ReplaceAll(msg, "#"+key+"#", list[rand.Intn(len(list))])
@@ -121,64 +118,53 @@ func GetRandomMessage() json.RawMessage {
 	return []byte(msg)
 }
 
-func LoadMessageTemplateFile(fileName string) {
-	var t TemplateFile
-	requestFile, _ := ioutil.ReadFile(fileName)
-	_ = json.Unmarshal(requestFile, &t)
-
-	totalMessageProbability := 0.0
-	for p, v := range t {
-		f, _ := strconv.ParseFloat(p, 64)
-		totalMessageProbability = totalMessageProbability + f
-		messageTemplates = append(messageTemplates, MessageTemplate{f, string(v)})
+func LoadConfig(fileName string) error {
+	b, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		return err
 	}
 
-	// Normalize probabilities
-	for i := range messageTemplates {
-		messageTemplates[i].Probability = messageTemplates[i].Probability / totalMessageProbability
+	err = json.Unmarshal(b, &config)
+	if err != nil {
+		return err
 	}
-}
 
-func LoadIdListFile(fileName string) {
-	idListFile, _ := ioutil.ReadFile(fileName)
-
-	_ = json.Unmarshal(idListFile, &idLists)
-
-	for k := range idLists {
-		fmt.Println("key:", k, "count:", len(idLists[k]))
+	totalProbability := 0.0
+	for _, v := range config.RequestTemplates {
+		totalProbability = totalProbability + v.Probability
 	}
+
+	for p := range config.RequestTemplates {
+		config.RequestTemplates[p].Probability = config.RequestTemplates[p].Probability / totalProbability
+	}
+
+	return nil
 }
 
 func main() {
 
 	args := os.Args[1:]
-	// Args order: rps numConns url headerFile requestFile idListFile
 
-	// Required overall RPS
-	rps, _ := strconv.Atoi(args[0])
-
-	// Delay between requests
-	delay := time.Duration(1000000/rps) * time.Microsecond
-
-	// Number of connections
-	numConns, _ := strconv.Atoi(args[1])
-
-	// Read and prepare headers
-	headerFile, _ := ioutil.ReadFile(args[3])
-	headers := append(strings.Split(string(headerFile), "\n"), "Content-Type: application/json")
-
-	// Create the connections
-	connections := make([]*Connection, numConns)
-	for i := 0; i < numConns; i++ {
-		connections[i] = NewConnection(args[2])
-		connections[i].AddHeaders(headers)
+	configFileName := "config.json"
+	if len(args) > 0 {
+		configFileName = args[1]
 	}
 
-	// Read the request templates
-	LoadMessageTemplateFile(args[4])
+	err := LoadConfig(configFileName)
+	if err != nil {
+		fmt.Println("config loading error:", err)
+		return
+	}
 
-	// Read the id-lists
-	LoadIdListFile(args[5])
+	// Delay between requests
+	delay := time.Duration(1000000/config.Rps) * time.Microsecond
+
+	// Create the connections
+	connections := make([]*Connection, config.NumConnections)
+	for i := 0; i < config.NumConnections; i++ {
+		connections[i] = NewConnection(config.Url)
+		connections[i].AddHeaders(config.Headers)
+	}
 
 	// Perform the requests
 	connCycle := 0
@@ -187,6 +173,6 @@ func main() {
 		// Each request is done in its own goroutine
 		go func() { connections[connCycle].Call(GetRandomMessage()) }()
 		// The connections are cycled
-		connCycle = (connCycle + 1) % numConns
+		connCycle = (connCycle + 1) % config.NumConnections
 	}
 }
