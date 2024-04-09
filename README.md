@@ -1,6 +1,6 @@
 ## CALLER
 
-This caller calls jsonrpc methods with given RPS.
+This (quite dumb) caller calls jsonrpc methods with given RPS.
 
 Usage:
 
@@ -14,14 +14,13 @@ For example:
 `request-file` is a (probably not syntactically correct) json file
 
     {
-        "0.1": {"lol": "#VAL#"},
+        "0.1": {lol": "#VAL#"},
         "0.2": {"kek": "#FOO#"},
-        "666": {"cheburek": #BAR#}
+        "0.666": {"id": "#ID#", "cheburek": #BAR#}
     }
 
 The keys here are probabilities of each request to appear.
-(the probabilities may not add up to 1.0, it is even recommended to have
-the last one to be very large like in this example)
+(the probabilities may not add up to 1.0)
 
 `id-list-file` is a (now valid) json with lists of identifiers:
 
@@ -31,10 +30,11 @@ the last one to be very large like in this example)
         "BAR": ["666", "999"]
     }
 
-Note that the keys here do match with `#VAL#` templates in the `request-file`.
+Note that the keys here do match with `#XXX#` templates in the `request-file`.
 
 When a random request is to be sent, it is scanned for template sequences and
 each such sequence is substituted with a random value from the corresponding list.
+A special pattern `#ID#` is replaced by a random string.
 
 So in our example the first request `{"lol": "#VAL#"}` will take the form
 `{"lol": "1"}`, `{"lol": "2"}` or `{"lol": "1"}` (at random).

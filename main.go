@@ -63,30 +63,49 @@ func (conn *Connection) AddHeader(key, value string) {
 	conn.headers.Add(key, value)
 }
 
+func (conn *Connection) AddHeaders(headers []string) {
+	for _, v := range headers {
+		nameValue := strings.Split(v, ":")
+		if len(nameValue) != 2 {
+			continue
+		}
+		conn.AddHeader(strings.TrimSpace(nameValue[0]), strings.TrimSpace(nameValue[1]))
+	}
+}
+
+// TemplateFile is the type to be extracted from a template file
 type TemplateFile map[string]json.RawMessage
 
+// IdListFile is the type to be extracted from an id list file
 type IdListFile map[string][]string
 
+// The storage for id lists
 var idLists IdListFile = map[string][]string{}
 
-var messages = map[float32]string{}
+type MessageTemplate struct {
+	Probability float64
+	Text        string
+}
 
-func GetRawRandomMessage() string {
-	randomValue := rand.Float32()
-	var probabilitySum float32 = 0.0
-	for probability, message := range messages {
-		if randomValue < probability {
-			return message
+var messageTemplates []MessageTemplate
+
+// GetRandomMessageTemplate Pick a random template from template list
+func GetRandomMessageTemplate() string {
+	randomValue := rand.Float64()
+
+	for i := range messageTemplates {
+		if randomValue < messageTemplates[i].Probability {
+			return messageTemplates[i].Text
 		}
-		probabilitySum = probabilitySum + probability
 	}
 
 	return `{}`
 }
 
+// GetRandomMessage pick a random message
 func GetRandomMessage() json.RawMessage {
 
-	msg := GetRawRandomMessage()
+	msg := GetRandomMessageTemplate()
 	id := rand.Uint64()
 
 	// replace patterns in the message with required elements
@@ -97,6 +116,30 @@ func GetRandomMessage() json.RawMessage {
 	}
 
 	return []byte(msg)
+}
+
+func LoadMessageTemplateFile(fileName string) {
+	var t TemplateFile
+	requestFile, _ := ioutil.ReadFile(fileName)
+	_ = json.Unmarshal(requestFile, &t)
+
+	totalMessageProbability := 0.0
+	for p, v := range t {
+		f, _ := strconv.ParseFloat(p, 64)
+		totalMessageProbability = totalMessageProbability + f
+		messageTemplates = append(messageTemplates, MessageTemplate{f, string(v)})
+	}
+
+	// Normalize probabilities
+	for i := range messageTemplates {
+		messageTemplates[i].Probability = messageTemplates[i].Probability / totalMessageProbability
+	}
+}
+
+func LoadIdListFile(fileName string) {
+	idListFile, _ := ioutil.ReadFile(fileName)
+
+	_ = json.Unmarshal(idListFile, &idLists)
 }
 
 func main() {
@@ -115,42 +158,28 @@ func main() {
 
 	// Read and prepare headers
 	headerFile, _ := ioutil.ReadFile(args[3])
-	headers := strings.Split(string(headerFile), "\n")
+	headers := append(strings.Split(string(headerFile), "\n"), "Content-Type: application/json")
 
 	// Create the connections
 	connections := make([]*Connection, numConns)
 	for i := 0; i < numConns; i++ {
 		connections[i] = NewConnection(args[2])
-		connections[i].AddHeader("Content-Type", "application/json")
-
-		for _, v := range headers {
-			nameValue := strings.Split(v, ":")
-			if len(nameValue) != 2 {
-				continue
-			}
-			connections[i].AddHeader(strings.TrimSpace(nameValue[0]), strings.TrimSpace(nameValue[1]))
-		}
+		connections[i].AddHeaders(headers)
 	}
 
 	// Read the request templates
-	var t TemplateFile
-	requestFile, _ := ioutil.ReadFile(args[4])
-	_ = json.Unmarshal(requestFile, &t)
-
-	for p, v := range t {
-		f, _ := strconv.ParseFloat(p, 32)
-		messages[float32(f)] = string(v)
-	}
+	LoadMessageTemplateFile(args[4])
 
 	// Read the id-lists
-	idListFile, _ := ioutil.ReadFile(args[5])
-	_ = json.Unmarshal(idListFile, &idLists)
+	LoadIdListFile(args[5])
 
 	// Perform the requests
 	connCycle := 0
 	for {
 		time.Sleep(delay)
+		// Each request is done in its own goroutine
 		go func() { connections[connCycle].Call(GetRandomMessage()) }()
+		// The connections are cycled
 		connCycle = (connCycle + 1) % numConns
 	}
 }
